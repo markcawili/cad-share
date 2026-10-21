@@ -225,6 +225,7 @@ body.novice .panel { display: none; }
   z-index: 7;
 }
 .guide-tab .tab-icon { writing-mode: horizontal-tb; font-size: 16px; line-height: 1; }
+.guide-tab > * { pointer-events: none; } /* the whole tab is the click target, icon included */
 .guide-tab.attention { animation: nudge 1.2s var(--ease) 2; }
 @keyframes nudge { 0%, 100% { right: 0; } 50% { right: 6px; background: var(--blue-soft); } }
 .guide-drawer {
