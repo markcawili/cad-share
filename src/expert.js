@@ -4,15 +4,15 @@
 // Messages between the two sides:
 //   expert → novice  { t: 'doc', doc }            full model state (on join, undo, reset)
 //                    { t: 'highlight', id }       piece the expert is pointing out (or null)
-//   novice → expert  { t: 'edit', doc, push, drop } novice changed the model; push = new undo step,
-//                                                drop = discard the latest undo step (cancelled rotation)
+//   novice → expert  { t: 'edit', doc, push }     novice changed the model; push = new undo step
 //                    { t: 'cursor', cursor, pose, dwell }
-//                    { t: 'confirm', id }         novice confirmed a placement (open palm)
+//                    { t: 'confirm', id }         novice confirmed a placement (thumbs-up)
 import { SceneView } from './scene.js';
 import { hostRoom } from './net.js';
 import { initialDoc, cloneDoc, pieceLabel } from './model.js';
-import { rotateModel } from './ops.js';
+import { rotateModel, tiltView } from './ops.js';
 import { $, setStatus, toast, showBanner, showCursor, button } from './ui.js';
+import { playSelect, playConfirm, unlockSound } from './sound.js';
 
 const POSE_NAMES = {
   none: 'No hand',
@@ -30,6 +30,8 @@ export function startExpert(room) {
   setStatus('Starting…');
 
   const view = new SceneView($('viewport'));
+  view.onSelect = playSelect; // the customer picked a piece
+  window.addEventListener('pointerdown', unlockSound, { once: true });
   let doc = initialDoc();
   let highlightId = null;
   const history = [];
@@ -61,7 +63,7 @@ export function startExpert(room) {
     </section>
     <section>
       <h3>How to guide</h3>
-      <p><b>Middle-drag</b> (hold the scroll wheel and drag) left or right to rotate the model.</p>
+      <p><b>Middle-drag</b> (hold the scroll wheel and drag): left / right turns the model, up / down tilts the view, all the way around.</p>
       <p>Click a piece to highlight it for the customer. Click it again, or click empty space, to clear the highlight.</p>
       <p>The customer moves, rotates and zooms with hand gestures. Their cursor shows in purple.</p>
       <p><b>Undo</b> steps back one customer change. <b>Reset model</b> restores the original house.</p>
@@ -87,7 +89,6 @@ export function startExpert(room) {
     },
     onMessage: (msg) => {
       if (msg.t === 'edit') {
-        if (msg.drop) history.pop();
         if (msg.push) history.push(cloneDoc(doc));
         doc = msg.doc;
         view.applyDoc(doc);
@@ -99,6 +100,8 @@ export function startExpert(room) {
         $('novice-pose').textContent = POSE_NAMES[msg.pose] ?? msg.pose;
       } else if (msg.t === 'confirm') {
         toast(`✅ Customer confirmed placement: ${pieceLabel(msg.id)}`);
+        view.flashConfirm(msg.id);
+        playConfirm();
       }
     },
   });
@@ -109,31 +112,36 @@ export function startExpert(room) {
     const id = view.pick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
     highlightId = id === highlightId ? null : id;
     view.setHighlight(highlightId);
+    if (highlightId) playSelect();
     showBanner(highlightId ? `Highlighting: ${pieceLabel(highlightId)}` : null);
     net.send({ t: 'highlight', id: highlightId });
   });
 
-  // Middle mouse button drag rotates the whole model, as in most 3D software.
+  // Middle mouse button drag orbits, as in most 3D software:
+  // left / right turns the model, up / down tilts the view (a full 360°).
   const canvas = view.renderer.domElement;
-  let orbitX = null;
-  let orbitPushed = false; // one undo step per drag, added once it actually moves
+  let orbit = null; // { x, y, pushed } while dragging
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 1) return;
     e.preventDefault(); // stop the browser's middle-click autoscroll
-    orbitX = e.clientX;
-    orbitPushed = false;
+    orbit = { x: e.clientX, y: e.clientY, pushed: false };
+    canvas.classList.add('orbiting');
   });
   window.addEventListener('mousemove', (e) => {
-    if (orbitX === null || e.clientX === orbitX) return;
-    if (!orbitPushed) history.push(cloneDoc(doc));
-    orbitPushed = true;
-    doc = rotateModel(doc, (e.clientX - orbitX) * 0.01);
-    orbitX = e.clientX;
+    if (!orbit) return;
+    const dx = e.clientX - orbit.x;
+    const dy = e.clientY - orbit.y;
+    if (!dx && !dy) return;
+    if (!orbit.pushed) history.push(cloneDoc(doc)); // one undo step per drag
+    orbit = { x: e.clientX, y: e.clientY, pushed: true };
+    doc = tiltView(rotateModel(doc, dx * 0.01), dy * 0.01);
     view.applyDoc(doc);
     net.send({ t: 'doc', doc });
   });
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 1) orbitX = null;
+    if (e.button !== 1) return;
+    orbit = null;
+    canvas.classList.remove('orbiting');
   });
   canvas.addEventListener('auxclick', (e) => e.preventDefault());
 

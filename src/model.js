@@ -28,6 +28,7 @@ export function initialDoc() {
     },
     model: { pos: [0, 0, 0], rotY: 0 },
     zoom: 13, // camera distance from the target
+    tilt: 0, // camera tilt in radians (expert middle-drag up/down); a full turn is 2π
     selectedId: null,
   };
 }

@@ -29,7 +29,7 @@ export const CONFIG = {
   swipeReverseBlockMs: 1200, // block the opposite direction (the hand returning) this long
 
   rotateArmMs: 300, // hold a fist this long before it starts rotating
-  rotateCancelMs: 500, // a thumbs-up this soon after rotating cancels that rotation
+  fistToThumbsFrames: 8, // a fist must show a clear thumbs-up this many frames (~0.25 s) to switch
   rotateGain: 1.5, // model radians per radian of fist turn
   rotateDeadzone: 0.01, // ignore per-frame wrist jitter smaller than this (radians)
 
@@ -67,9 +67,12 @@ export function measure(lm) {
     ring: extended(lm, RING_TIP, RING_PIP),
     pinky: extended(lm, PINKY_TIP, PINKY_PIP),
     pinchGap: dist(lm[THUMB_TIP], lm[INDEX_TIP]) / handSize,
-    // Thumb sticking out and pointing up (image y grows downwards).
-    thumbUp: dist(lm[THUMB_TIP], lm[INDEX_MCP]) / handSize > 0.6 &&
-      lm[THUMB_TIP].y < lm[THUMB_IP].y && lm[THUMB_IP].y < lm[THUMB_MCP].y,
+    // How far the thumb tip sticks out from the index knuckle. In a fist the
+    // thumb rests across the fingers, so this stays small.
+    thumbOut: dist(lm[THUMB_TIP], lm[INDEX_MCP]) / handSize,
+    // Thumb pointing up and clearly above the knuckles (image y grows downwards).
+    thumbAbove: (lm[INDEX_MCP].y - lm[THUMB_TIP].y) / handSize,
+    thumbStraightUp: lm[THUMB_TIP].y < lm[THUMB_IP].y && lm[THUMB_IP].y < lm[THUMB_MCP].y,
   };
 }
 
@@ -82,7 +85,11 @@ export function classifyPose(lm, category) {
   const curled = !m.index && !m.middle && !m.ring && !m.pinky;
   const threeUp = m.middle && m.ring && m.pinky;
 
-  if (category === 'Thumb_Up' || (curled && m.thumbUp)) return 'thumbs';
+  // Thumbs-up needs the thumb clearly out and up, even when MediaPipe says Thumb_Up,
+  // so a fist with the thumb resting on top still counts as a fist.
+  const thumbClear = m.thumbStraightUp && m.thumbAbove > 0.3;
+  if ((category === 'Thumb_Up' && m.thumbOut > 0.55 && thumbClear) ||
+      (curled && m.thumbOut > 0.7 && thumbClear)) return 'thumbs';
   if (category === 'Closed_Fist' || curled) return 'fist';
   if (threeUp && m.pinchGap < CONFIG.pinchClose) return 'pinch';
   if (m.index && threeUp) return 'palm';
@@ -107,7 +114,6 @@ export class GestureInterpreter {
     this.hold = null; // thumbs-up hold: { x, y, start, fired }
     this.rotating = false;
     this.fistSince = null;
-    this.rotateEndedAt = -Infinity;
     this.lastAngle = 0;
     this.zoomMode = false;
     this.smoothGap = 0;
@@ -120,7 +126,7 @@ export class GestureInterpreter {
    * @param landmarks 21 {x, y, z} points in raw camera coordinates, or null when no hand
    * @param category MediaPipe gesture label ('Closed_Fist', 'Open_Palm', ...) or 'None'
    * @param t timestamp in ms
-   * @returns {{pose, cursor, dwell, hold, zoomMode, events}}
+   * @returns {{pose, cursor, dwell, hold, zoomMode, rotating, events}}
    */
   update(landmarks, category, t) {
     const events = [];
@@ -156,11 +162,13 @@ export class GestureInterpreter {
       dwell: progress(this.dwell, CONFIG.dwellMs),
       hold: progress(this.hold, CONFIG.thumbsHoldMs),
       zoomMode: this.zoomMode,
+      rotating: this.rotating,
       events,
     };
   }
 
   updatePose(raw) {
+    this.rawPose = raw;
     if (raw === this.pose) {
       this.candidate = null;
       return;
@@ -170,7 +178,9 @@ export class GestureInterpreter {
       this.candidate = raw;
       this.candidateCount = 1;
     }
-    if (this.candidateCount >= CONFIG.poseStableFrames) {
+    // Leaving a fist for a thumbs-up needs extra proof: they look alike mid-rotation.
+    const needed = this.pose === 'fist' && raw === 'thumbs' ? CONFIG.fistToThumbsFrames : CONFIG.poseStableFrames;
+    if (this.candidateCount >= needed) {
       this.pose = raw;
       this.candidate = null;
     }
@@ -225,13 +235,15 @@ export class GestureInterpreter {
 
   // Closed fist: turning it like a dial rotates. Uses the knuckle line (index → pinky).
   // A hand passes through a fist on its way to a thumbs-up, so the fist must be
-  // held briefly before rotating, and a thumbs-up right after cancels the rotation.
+  // held briefly before rotating. Rotating and then giving a thumbs-up keeps the rotation.
   handleRotate(lm, t, events) {
     const angle = Math.atan2(lm[PINKY_MCP].y - lm[INDEX_MCP].y, lm[PINKY_MCP].x - lm[INDEX_MCP].x);
     if (this.pose === 'fist') {
       this.fistSince ??= t;
       if (!this.rotating) {
-        if (t - this.fistSince < CONFIG.rotateArmMs) return;
+        // Arm only while this frame itself looks like a fist, not while the pose
+        // is still "fist" only because the next pose hasn't been confirmed yet.
+        if (this.rawPose !== 'fist' || t - this.fistSince < CONFIG.rotateArmMs) return;
         this.rotating = true;
         this.lastAngle = angle;
         events.push({ type: 'rotateStart' });
@@ -247,12 +259,7 @@ export class GestureInterpreter {
     this.fistSince = null;
     if (this.rotating) {
       this.rotating = false;
-      this.rotateEndedAt = t;
       events.push({ type: 'rotateEnd' });
-    }
-    if (this.pose === 'thumbs' && t - this.rotateEndedAt <= CONFIG.rotateCancelMs) {
-      this.rotateEndedAt = -Infinity;
-      events.push({ type: 'rotateCancel' });
     }
   }
 

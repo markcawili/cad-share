@@ -41,7 +41,9 @@ const PALM = { fingers: [1, 1, 1, 1] };
 const FIST = { fingers: [0, 0, 0, 0] };
 // Thumb tucked against the curled index: the shape that used to read as a pinch.
 const TIGHT_FIST = { fingers: [0, 0, 0, 0], thumbTip: [-0.045, 0.02] };
-const THUMBS_UP = { fingers: [0, 0, 0, 0], thumbTip: [-0.1, -0.08] };
+const THUMBS_UP = { fingers: [0, 0, 0, 0], thumbTip: [-0.1, -0.14] };
+// Fist with the thumb resting on top of the index knuckle, as when turning a dial.
+const FIST_THUMB_ON_TOP = { fingers: [0, 0, 0, 0], thumbTip: [-0.03, -0.03] };
 // OK sign: middle/ring/pinky up, thumb meets the index tip. gap widens the thumb-index distance.
 const ok = (gap = 0) => ({ fingers: [0, 1, 1, 1], thumbTip: [-0.045 - gap, 0.02] });
 
@@ -113,12 +115,21 @@ test('a brief fist on the way to a thumbs-up never rotates', () => {
   assert.deepEqual(types(ev), ['confirm']);
 });
 
-test('a longer fist that turns into a thumbs-up cancels its rotation', () => {
-  const fist = repeat(15, (i) => [{ ...FIST, angle: i * 0.05 }, 'Closed_Fist']); // ~500 ms
-  const thumbs = repeat(30, () => [THUMBS_UP, 'Thumb_Up']);
+test('rotating then giving a thumbs-up keeps the rotation and confirms', () => {
+  const fist = repeat(20, (i) => [{ ...FIST, angle: i * 0.05 }, 'Closed_Fist']);
+  const thumbs = repeat(40, () => [THUMBS_UP, 'Thumb_Up']);
   const ev = types(run(new GestureInterpreter(), [...fist, ...thumbs]));
   assert.ok(ev.includes('rotate'));
-  assert.deepEqual(ev.slice(ev.indexOf('rotateEnd')), ['rotateEnd', 'rotateCancel', 'confirm']);
+  assert.ok(!ev.includes('rotateCancel'));
+  assert.deepEqual(ev.slice(ev.indexOf('rotateEnd')), ['rotateEnd', 'confirm']);
+});
+
+test('a fist with the thumb on top is not a thumbs-up, even if MediaPipe says so', () => {
+  assert.equal(classifyPose(hand(FIST_THUMB_ON_TOP), 'Thumb_Up'), 'fist');
+  // A turning fist that MediaPipe briefly mislabels keeps rotating.
+  const frames = repeat(40, (i) => [{ ...FIST_THUMB_ON_TOP, angle: i * 0.03 }, i % 5 === 0 ? 'Thumb_Up' : 'Closed_Fist']);
+  const ev = types(run(new GestureInterpreter(), frames));
+  assert.deepEqual([ev[0], ev.includes('confirm'), ev.includes('rotateEnd')], ['rotateStart', false, false]);
 });
 
 test('OK sign then spread zooms in steadily; holding still does not zoom', () => {
@@ -180,4 +191,12 @@ test('expert orbit rotates the whole model even with a piece selected', () => {
   const doc = ops.rotateModel(ops.select(initialDoc(), 'roof'), 0.5);
   assert.equal(doc.model.rotY, 0.5);
   assert.equal(doc.pieces.roof.rotY, 0);
+});
+
+test('expert tilt goes all the way around and wraps', () => {
+  let doc = initialDoc();
+  for (let i = 0; i < 8; i++) doc = ops.tiltView(doc, Math.PI / 2);
+  assert.ok(Math.abs(doc.tilt) < 1e-9, `two full turns should end level, got ${doc.tilt}`);
+  doc = ops.tiltView(initialDoc(), Math.PI * 1.5);
+  assert.ok(Math.abs(doc.tilt + Math.PI / 2) < 1e-9);
 });

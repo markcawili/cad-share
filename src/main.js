@@ -6,6 +6,7 @@ import { $ } from './ui.js';
 import { newRoomCode } from './net.js';
 import { startExpert } from './expert.js';
 import { startNovice } from './novice.js';
+import { unlockSound } from './sound.js';
 
 const params = new URLSearchParams(location.search);
 const room = params.get('room');
@@ -13,6 +14,7 @@ const room = params.get('room');
 if (!room) {
   $('landing').classList.remove('hidden');
   $('start-expert').addEventListener('click', () => {
+    unlockSound();
     const url = new URL(location.href);
     url.searchParams.set('room', newRoomCode());
     url.searchParams.set('role', 'expert');

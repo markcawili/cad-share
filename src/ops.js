@@ -58,6 +58,14 @@ export function rotateModel(doc, deltaRad) {
   return next;
 }
 
+// Middle-mouse tilt for the expert: turns the camera up or over the model, a full 360°.
+export function tiltView(doc, deltaRad) {
+  const next = cloneDoc(doc);
+  const t = (next.tilt ?? 0) + deltaRad;
+  next.tilt = Math.atan2(Math.sin(t), Math.cos(t)); // keep within -π..π
+  return next;
+}
+
 // factor > 1 zooms in (camera moves closer).
 export function zoom(doc, factor) {
   const next = cloneDoc(doc);
