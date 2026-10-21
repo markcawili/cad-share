@@ -218,9 +218,13 @@ body.novice .panel { display: none; }
   border-right: 0;
   padding: 12px 10px;
   writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  gap: 8px; /* space between the hand icon and the label */
   box-shadow: var(--shadow);
   z-index: 7;
 }
+.guide-tab .tab-icon { writing-mode: horizontal-tb; font-size: 16px; line-height: 1; }
 .guide-tab.attention { animation: nudge 1.2s var(--ease) 2; }
 @keyframes nudge { 0%, 100% { right: 0; } 50% { right: 6px; background: var(--blue-soft); } }
 .guide-drawer {

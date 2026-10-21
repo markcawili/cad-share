@@ -56,7 +56,7 @@ export function startNovice(room) {
       <span class="hud-text"><b id="hud-title">Camera off</b><span id="hud-sub">Gestures are paused</span></span>
     </div>
 
-    <button id="guide-tab" class="guide-tab hidden" aria-expanded="false">✋ Gestures</button>
+    <button id="guide-tab" class="guide-tab hidden" aria-expanded="false"><span class="tab-icon">✋</span><span>Gestures</span></button>
     <aside id="guide-drawer" class="guide-drawer" aria-hidden="true">
       <div class="drawer-head"><h3>Hand gestures</h3><button id="guide-close" class="icon-btn" aria-label="Close">✕</button></div>
       ${guideList()}
